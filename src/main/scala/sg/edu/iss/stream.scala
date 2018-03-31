@@ -16,15 +16,27 @@ object stream extends App {
   import spark.implicits._
   val flightScheduleDf = spark.read.json("hdfs://localhost/user/cloudera/cag/" + DateTime.now.plusDays(1).toString("yyyyMMdd") + ".json").select(explode($"carriers").as("flights"))
   val flightNos = flightScheduleDf.select($"flights.flightNo").rdd.map(r => r(0)).collect()
+  val flightInfo = flightScheduleDf.select($"flights.flightNo", $"flights.airportCode", $"flights.scheduledDatetime").rdd.map(r => (r(0), r(1), r(2))).collect()
   
   
   // Start streaming
   val lines = ssc.socketTextStream("localhost", 9008)
   
-  val filteredLiveTraffic = lines.map(_.split(",")).filter(x => x.size >=7 && flightNos.contains(x(6)) && x(1) != "" && x(2) != "" && x(3) != "")
+  val filteredLiveTraffic = lines.map(_.split(",")).filter(x => x.size >=7 && flightNos.contains(x(6)) && x(1) != "" && x(2) != "" && x(3) != "").map(processStreamData)
   
-  filteredLiveTraffic.map(_.mkString(",")).print()
+  filteredLiveTraffic.map(x => x.productIterator.mkString(",")).print()
   
   ssc.start()
   ssc.awaitTermination()
+  
+  def processStreamData(data: Array[String]) : (String, String, String, String, String, String) = {
+    val flightNo = data(6)
+    val lat = data(1)
+    val lon = data(2)
+    val spd = data(3)
+    val departure = flightInfo.filter(_._1 == flightNo)(0)._2.toString()
+    val eta = flightInfo.filter(_._1 == flightNo)(0)._3.toString()
+    
+    return (flightNo, lat, lon, spd, departure, eta)
+  }
 }
